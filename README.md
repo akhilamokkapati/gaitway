@@ -3,9 +3,6 @@
 Sensing and control firmware for the Gaitway unilateral stroke rehabilitation
 exoskeleton, Engineering Innovation Challenge 2026, Team U-43.
 
-This repo is separate from the PASS knee project. It reuses proven BNO085
-bring-up patterns from PASS but shares no code.
-
 ## What it does
 
 A waist hub senses gait (right thigh) and balance (waist) and drives two outputs:
