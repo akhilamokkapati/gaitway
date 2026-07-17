@@ -14,8 +14,16 @@
 #include "calibration.h"
 #include "detection.h"
 #include "rvc_parser.h"
+#include "command_stream.h"
 
 using namespace gaitway;
+
+// Output command streams (spec 6). GW1 to Joseph's actuation MCU on UART2 TX,
+// GV1 to the GVS node on UART1 TX (UART1 RX carries the RVC frames).
+static CommandStream gw1("GW1,HB", CMD_MIN_GAP_MS, CMD_HEARTBEAT_MS);
+static CommandStream gv1("GV1,HB", CMD_MIN_GAP_MS, CMD_HEARTBEAT_MS);
+static const char*   assistShort = "STOP";   // for the CSV assist_cmd column
+static const char*   gvsShort    = "STOP";   // for the CSV gvs_state column
 
 // ---------------------------------------------------------------------------
 // Sensors and detection
@@ -196,7 +204,8 @@ static void serviceRightThigh(uint32_t now) {
 }
 
 // ---------------------------------------------------------------------------
-// Watchdogs (spec 4.2/4.3, safety law 3). Command STOP hooks land in Gate 3.
+// Watchdogs (spec 4.2/4.3, safety law 3). When fault is set, computeAssist and
+// computeGvs both force STOP, so both streams stop within one gap period.
 // ---------------------------------------------------------------------------
 static void serviceWatchdogs(uint32_t now) {
     bool waistDead = (now - lastWaistMs) > SENSOR_TIMEOUT_MS;
@@ -207,12 +216,30 @@ static void serviceWatchdogs(uint32_t now) {
         if (!fault) Serial.printf("# FAULT: %s watchdog trip, re-initialising\n",
                                   waistDead ? "waist" : "right-thigh");
         fault = true;
-        // TODO Gate 3: send GW1,STOP and GV1,STOP on the command streams here.
         if (waistDead) { waistBegin(); lastWaistMs = now; }  // recovery via re-init
     } else if (fault) {
         fault = false;
         Serial.println("# fault cleared");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Command intents (spec 6, safety law 1). Assist only while calibrated AND
+// walking AND not faulted. GVS lean classifier arrives in Gate 4, STOP for now.
+// ---------------------------------------------------------------------------
+static const char* computeAssist(uint32_t now) {
+    if (!calibrated || fault) { assistShort = "STOP"; return "GW1,STOP"; }
+    if (detector.isWalking(now) && lastDir != Dir::NONE) {
+        if (lastDir == Dir::FWD) { assistShort = "FWD"; return "GW1,ASSIST,FWD"; }
+        assistShort = "BWD"; return "GW1,ASSIST,BWD";
+    }
+    assistShort = "STOP";
+    return "GW1,STOP";
+}
+
+static const char* computeGvs(uint32_t /*now*/) {
+    gvsShort = "STOP";
+    return "GV1,STOP";   // TODO Gate 4: drive from the waist-roll lean classifier
 }
 
 // ---------------------------------------------------------------------------
@@ -231,10 +258,10 @@ static void logRow(uint32_t now) {
     // millis,waist_pitch,waist_roll,rt_pitch,rt_rate,lt_pitch,lt_stale,
     // step_evt,walk_state,dir,gvs_state,assist_cmd
     // lt_pitch empty and lt_stale 1 until the left node is live (Gate 5).
-    // gvs_state STOP and assist_cmd NONE until Gate 4 / Gate 3.
-    Serial.printf("%lu,%.2f,%.2f,%.2f,%.1f,,1,%d,%s,%s,STOP,NONE\n",
+    // gvs_state STOP until the Gate 4 lean classifier is added.
+    Serial.printf("%lu,%.2f,%.2f,%.2f,%.1f,,1,%d,%s,%s,%s,%s\n",
                   (unsigned long)now, wp, wr, rp, rtRate,
-                  stepPending ? 1 : 0, walk, dirStr(lastDir));
+                  stepPending ? 1 : 0, walk, dirStr(lastDir), gvsShort, assistShort);
     stepPending = false;
 }
 
@@ -245,7 +272,10 @@ void setup() {
     pinMode(PIN_STATUS_LED, OUTPUT);
     ledWrite(false);
 
-    Serial1.begin(115200, SERIAL_8N1, PIN_RT_RVC_RX, -1);   // RVC is receive only
+    // UART1: RX = right-thigh RVC frames, TX = GV1 stream to the GVS node.
+    Serial1.begin(115200, SERIAL_8N1, PIN_RT_RVC_RX, PIN_GVS_TX);
+    // UART2: TX = GW1 stream to Joseph's actuation MCU (RX unused).
+    Serial2.begin(115200, SERIAL_8N1, -1, PIN_ACT_TX);
 
     if (!waistBegin()) {
         Serial.println("# FATAL: waist BNO085 not found, check I2C wiring (<10cm) and address");
@@ -268,6 +298,12 @@ void loop() {
     serviceWaist(now);
     serviceRightThigh(now);
     serviceWatchdogs(now);
+
+    // Command streams: compute intent, emit edge/heartbeat lines within the gap.
+    const char* gwLine = gw1.update(computeAssist(now), now);
+    if (gwLine) Serial2.println(gwLine);
+    const char* gvLine = gv1.update(computeGvs(now), now);
+    if (gvLine) Serial1.println(gvLine);
 
     if (now - lastLogMs >= (uint32_t)(1000 / LOG_HZ)) {
         lastLogMs = now;

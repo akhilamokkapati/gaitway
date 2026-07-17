@@ -18,8 +18,10 @@ BUILD = os.path.join(HERE, "build")
 
 # name -> (list of source files to compile together)
 CPP_TESTS = {
-    "test_rvc":       [os.path.join(HERE, "test_rvc.cpp"), os.path.join(SRC, "rvc_parser.cpp")],
-    "test_hostlogic": [os.path.join(HERE, "test_hostlogic.cpp")],
+    "test_rvc":            [os.path.join(HERE, "test_rvc.cpp"), os.path.join(SRC, "rvc_parser.cpp")],
+    "test_hostlogic":      [os.path.join(HERE, "test_hostlogic.cpp")],
+    "test_command_stream": [os.path.join(HERE, "test_command_stream.cpp"),
+                            os.path.join(SRC, "command_stream.cpp")],
 }
 
 
