@@ -1,0 +1,11 @@
+# Normalize line endings so the repo stores LF and Windows checkouts stay clean.
+* text=auto
+
+*.py   text
+*.cpp  text
+*.h    text
+*.ino  text
+*.md   text
+*.ini  text
+*.csv  text
+*.png  binary
