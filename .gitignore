@@ -1,0 +1,24 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Host test build artifacts
+tools/build/
+*.exe
+*.o
+*.out
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Captured session logs (keep the tree clean, logs live outside the repo)
+logs/
+*.session.csv
