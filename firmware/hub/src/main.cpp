@@ -5,6 +5,8 @@
 // arrive in Gate 3 and Gate 4, hooks are marked below. No em dashes.
 #include <Arduino.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <esp_now.h>
 #include <Adafruit_BNO08x.h>
 
 #include "config.h"
@@ -16,6 +18,8 @@
 #include "rvc_parser.h"
 #include "command_stream.h"
 #include "lean_classifier.h"
+#include "gaitway_packet.h"
+#include "asymmetry.h"
 
 using namespace gaitway;
 
@@ -54,6 +58,24 @@ static LeanConfig makeLeanCfg() {
     return c;
 }
 static LeanClassifier gvsLean(makeLeanCfg());
+
+// Left leg analytics (spec 5.6). A second detector runs on the wireless left
+// thigh pitch to extract per-step amplitude and duration for the asymmetry
+// metric. This path is analytics only and never gates assist or GVS.
+static StepDetector     leftDetector(makeDetCfg());
+static AsymmetryMetric  asym(ASYM_WINDOW_STEPS);
+
+// Shared with the ESP-NOW receive callback (runs in the WiFi task).
+static portMUX_TYPE     ltMux = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool    ltNew = false;
+static LeftNodePacket   ltPkt;
+static uint32_t         ltRecvMs = 0;
+static uint32_t         lastLeftMs = 0;   // last valid packet, for staleness
+static float            ltPitch = 0.0f;   // latest left pitch deviation, for logging
+static bool             ltStale = true;
+static uint32_t         lastAsymMs = 0;
+
+static void sendCalRequest();             // defined in the ESP-NOW section below
 
 // ---------------------------------------------------------------------------
 // Live state
@@ -144,6 +166,7 @@ static void startCalibration() {
     calWaistPitch = RunningStats();
     calWaistRoll  = RunningStats();
     calRtPitch    = RunningStats();
+    sendCalRequest();                 // ask the left node to capture its own baseline
     Serial.println("# calibration: hold still, collecting");
 }
 
@@ -159,7 +182,9 @@ static void finishCalibration() {
     baseWaistRoll  = (float)calWaistRoll.mean;
     baseRtPitch    = (float)calRtPitch.mean;
     detector.reset();
+    leftDetector.reset();
     gvsLean.reset();
+    asym.reset();
     calibrated = true;
     Serial.printf("# calibrated: waist_pitch=%.2f waist_roll=%.2f rt_pitch=%.2f\n",
                   baseWaistPitch, baseWaistRoll, baseRtPitch);
@@ -212,6 +237,7 @@ static void serviceRightThigh(uint32_t now) {
             stepPending = true;
             lastDir = ev.direction;
         }
+        if (ev.ended) asym.feedRightStep(ev.amplitude_deg, ev.duration_ms);
     }
 }
 
@@ -261,6 +287,78 @@ static const char* computeGvs(uint32_t now) {
 }
 
 // ---------------------------------------------------------------------------
+// ESP-NOW left node (spec 4.3, 8). Analytics only, guarded by the stale flag.
+// ---------------------------------------------------------------------------
+// Callback signature targets Arduino-ESP32 2.x. On core 3.x the first argument
+// becomes const esp_now_recv_info_t*.
+static void onLeftRecv(const uint8_t* /*mac*/, const uint8_t* data, int len) {
+    if (len != (int)sizeof(LeftNodePacket)) return;
+    LeftNodePacket p;
+    memcpy(&p, data, sizeof(p));
+    if (!leftPacketValid(p)) return;          // schema, node id, and crc8
+    portENTER_CRITICAL_ISR(&ltMux);
+    ltPkt      = p;
+    ltRecvMs   = millis();
+    lastLeftMs = ltRecvMs;
+    ltNew      = true;
+    portEXIT_CRITICAL_ISR(&ltMux);
+}
+
+static void espnowSetup() {
+    WiFi.mode(WIFI_STA);
+    Serial.print("# hub MAC: ");
+    Serial.println(WiFi.macAddress());
+    if (esp_now_init() != ESP_OK) {
+        Serial.println("# WARN: esp_now_init failed, left node analytics disabled");
+        return;
+    }
+    esp_now_register_recv_cb(onLeftRecv);
+    esp_now_peer_info_t peer{};
+    memcpy(peer.peer_addr, LEFT_NODE_MAC, 6);
+    peer.channel = 0;
+    peer.encrypt = false;
+    if (esp_now_add_peer(&peer) != ESP_OK)
+        Serial.println("# WARN: could not add left-node peer, is LEFT_NODE_MAC set?");
+}
+
+static void sendCalRequest() {
+    CalRequestPacket req{};
+    req.schema_version = GW_SCHEMA_VERSION;
+    req.node_id        = NODE_LEFT_THIGH;
+    req.cmd            = CAL_CMD_CAPTURE;
+    req.crc8           = calRequestCrc(req);
+    esp_now_send(LEFT_NODE_MAC, (const uint8_t*)&req, sizeof(req));
+}
+
+static void serviceLeft(uint32_t now) {
+    bool haveNew = false;
+    LeftNodePacket p;
+    uint32_t recvMs = 0;
+    portENTER_CRITICAL(&ltMux);
+    if (ltNew) { p = ltPkt; recvMs = ltRecvMs; ltNew = false; haveNew = true; }
+    portEXIT_CRITICAL(&ltMux);
+
+    if (haveNew) {
+        ltPitch = p.pitch_cdeg / 100.0f;      // node sends baseline deviation already
+        StepEvent ev = leftDetector.update(ltPitch, recvMs);
+        if (ev.ended) asym.feedLeftStep(ev.amplitude_deg, ev.duration_ms);
+    }
+    ltStale = (lastLeftMs == 0) || ((now - lastLeftMs) > LT_STALE_MS);
+}
+
+static void logAsymmetry(uint32_t now) {
+    if (now - lastAsymMs < 2000) return;      // every 2 s, as a comment line
+    lastAsymMs = now;
+    AsymResult a = asym.result(ltStale);
+    if (a.available)
+        Serial.printf("# asym amp=%.2f dur=%.2f nL=%u nR=%u\n",
+                      a.amplitude_ratio, a.duration_ratio, a.n_left, a.n_right);
+    else
+        Serial.printf("# asym unavailable (left %s, nL=%u nR=%u)\n",
+                      ltStale ? "stale" : "ok", a.n_left, a.n_right);
+}
+
+// ---------------------------------------------------------------------------
 // CSV logging at 50 Hz
 // ---------------------------------------------------------------------------
 static const char* dirStr(Dir d) {
@@ -275,11 +373,15 @@ static void logRow(uint32_t now) {
 
     // millis,waist_pitch,waist_roll,rt_pitch,rt_rate,lt_pitch,lt_stale,
     // step_evt,walk_state,dir,gvs_state,assist_cmd
-    // lt_pitch empty and lt_stale 1 until the left node is live (Gate 5).
-    // gvs_state STOP until the Gate 4 lean classifier is added.
-    Serial.printf("%lu,%.2f,%.2f,%.2f,%.1f,,1,%d,%s,%s,%s,%s\n",
+    // lt_pitch is empty while the left node is stale (never synthesized).
+    char ltbuf[16];
+    if (ltStale) ltbuf[0] = '\0';
+    else         snprintf(ltbuf, sizeof(ltbuf), "%.2f", ltPitch);
+
+    Serial.printf("%lu,%.2f,%.2f,%.2f,%.1f,%s,%d,%d,%s,%s,%s,%s\n",
                   (unsigned long)now, wp, wr, rp, rtRate,
-                  stepPending ? 1 : 0, walk, dirStr(lastDir), gvsShort, assistShort);
+                  ltbuf, ltStale ? 1 : 0, stepPending ? 1 : 0, walk,
+                  dirStr(lastDir), gvsShort, assistShort);
     stepPending = false;
 }
 
@@ -294,6 +396,8 @@ void setup() {
     Serial1.begin(115200, SERIAL_8N1, PIN_RT_RVC_RX, PIN_GVS_TX);
     // UART2: TX = GW1 stream to Joseph's actuation MCU (RX unused).
     Serial2.begin(115200, SERIAL_8N1, -1, PIN_ACT_TX);
+
+    espnowSetup();   // left node analytics link (also prints the hub MAC)
 
     if (!waistBegin()) {
         Serial.println("# FATAL: waist BNO085 not found, check I2C wiring (<10cm) and address");
@@ -315,6 +419,7 @@ void loop() {
 
     serviceWaist(now);
     serviceRightThigh(now);
+    serviceLeft(now);
     serviceWatchdogs(now);
 
     // Command streams: compute intent, emit edge/heartbeat lines within the gap.
@@ -328,5 +433,6 @@ void loop() {
         logRow(now);
     }
 
+    logAsymmetry(now);
     updateLed(now);
 }

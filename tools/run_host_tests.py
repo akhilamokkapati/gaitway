@@ -13,6 +13,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 INC = os.path.join(ROOT, "firmware", "hub", "include")
+COMMON = os.path.join(ROOT, "firmware", "common")
 SRC = os.path.join(ROOT, "firmware", "hub", "src")
 BUILD = os.path.join(HERE, "build")
 
@@ -24,6 +25,8 @@ CPP_TESTS = {
                             os.path.join(SRC, "command_stream.cpp")],
     "test_lean":           [os.path.join(HERE, "test_lean.cpp"),
                             os.path.join(SRC, "lean_classifier.cpp")],
+    "test_packet_asym":    [os.path.join(HERE, "test_packet_asym.cpp"),
+                            os.path.join(SRC, "asymmetry.cpp")],
 }
 
 
@@ -47,7 +50,7 @@ def main():
 
     for name, srcs in CPP_TESTS.items():
         exe = os.path.join(BUILD, name + (".exe" if os.name == "nt" else ""))
-        cmd = [gpp, "-std=c++17", "-O2", "-Wall", "-I", INC, *srcs, "-o", exe]
+        cmd = [gpp, "-std=c++17", "-O2", "-Wall", "-I", INC, "-I", COMMON, *srcs, "-o", exe]
         c = subprocess.run(cmd, capture_output=True, text=True)
         if c.returncode != 0:
             print(f"[{name}] COMPILE FAILED\n{c.stdout}{c.stderr}")

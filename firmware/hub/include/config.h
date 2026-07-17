@@ -71,3 +71,10 @@ static const uint16_t LT_STALE_MS       = 200;     // left node data stale after
 static const float    RT_PITCH_SIGN    = +1.0f;    // right thigh
 static const float    WAIST_PITCH_SIGN = +1.0f;    // waist pitch
 static const float    WAIST_ROLL_SIGN  = +1.0f;    // waist roll (positive = lean right)
+
+// ---------------------------------------------------------------------------
+// ESP-NOW left node (spec 4.3, 8). Set LEFT_NODE_MAC to the node's STA MAC,
+// which it prints at boot. Used to send it a calibration request; incoming
+// packets are matched by node_id, not MAC.
+// ---------------------------------------------------------------------------
+static const uint8_t  LEFT_NODE_MAC[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };  // TODO SET

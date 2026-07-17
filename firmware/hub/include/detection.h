@@ -34,8 +34,11 @@ struct DetectorConfig {
 enum class Dir : uint8_t { NONE = 0, FWD = 1, BWD = 2 };
 
 struct StepEvent {
-    bool fired;      // true only on the exact sample a STEP is emitted
-    Dir  direction;  // direction of that STEP (NONE when fired == false)
+    bool     fired        = false;   // true only on the exact sample a STEP is emitted
+    Dir      direction    = Dir::NONE;
+    bool     ended        = false;   // true only on the sample a swing episode ends
+    float    amplitude_deg = 0.0f;   // peak-to-peak pitch during the swing (valid when ended)
+    uint16_t duration_ms  = 0;       // swing duration (valid when ended)
 };
 
 // Step event detector, state machine on filtered right thigh pitch velocity.
@@ -69,6 +72,9 @@ private:
     float    excursion_accum_;    // net wrap aware excursion across confirm window
     uint32_t refract_start_ms_;
     uint32_t last_step_ms_;
+    uint32_t swing_start_ms_;     // when the current swing episode began
+    float    swing_min_;          // min/max input pitch during the swing, for amplitude
+    float    swing_max_;
 };
 
 } // namespace gaitway

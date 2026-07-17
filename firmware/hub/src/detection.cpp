@@ -23,10 +23,13 @@ void StepDetector::reset() {
     excursion_accum_  = 0.0f;
     refract_start_ms_ = 0;
     last_step_ms_     = 0;
+    swing_start_ms_   = 0;
+    swing_min_        = 0.0f;
+    swing_max_        = 0.0f;
 }
 
 StepEvent StepDetector::update(float thigh_pitch_deg, uint32_t now_ms) {
-    StepEvent ev{false, Dir::NONE};
+    StepEvent ev;
 
     if (!have_prev_) {
         have_prev_  = true;
@@ -74,6 +77,10 @@ StepEvent StepDetector::update(float thigh_pitch_deg, uint32_t now_ms) {
                     have_step_    = true;
                     state_        = State::SWING;
                     confirming_   = false;
+                    // Begin tracking swing amplitude and duration for analytics.
+                    swing_start_ms_ = now_ms;
+                    swing_min_      = thigh_pitch_deg;
+                    swing_max_      = thigh_pitch_deg;
                 }
             } else {
                 confirming_      = false;
@@ -82,10 +89,15 @@ StepEvent StepDetector::update(float thigh_pitch_deg, uint32_t now_ms) {
             break;
 
         case State::SWING:
+            if (thigh_pitch_deg < swing_min_) swing_min_ = thigh_pitch_deg;
+            if (thigh_pitch_deg > swing_max_) swing_max_ = thigh_pitch_deg;
             // Wait for the swing to wind down before allowing the next one.
             if (ar < cfg_.swing_rate_off) {
                 state_            = State::REFRACTORY;
                 refract_start_ms_ = now_ms;
+                ev.ended          = true;
+                ev.amplitude_deg  = swing_max_ - swing_min_;
+                ev.duration_ms    = (uint16_t)(now_ms - swing_start_ms_);
             }
             break;
 
