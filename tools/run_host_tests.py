@@ -22,6 +22,8 @@ CPP_TESTS = {
     "test_hostlogic":      [os.path.join(HERE, "test_hostlogic.cpp")],
     "test_command_stream": [os.path.join(HERE, "test_command_stream.cpp"),
                             os.path.join(SRC, "command_stream.cpp")],
+    "test_lean":           [os.path.join(HERE, "test_lean.cpp"),
+                            os.path.join(SRC, "lean_classifier.cpp")],
 }
 
 

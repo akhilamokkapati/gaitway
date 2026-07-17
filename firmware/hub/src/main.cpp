@@ -15,6 +15,7 @@
 #include "detection.h"
 #include "rvc_parser.h"
 #include "command_stream.h"
+#include "lean_classifier.h"
 
 using namespace gaitway;
 
@@ -43,6 +44,16 @@ static DetectorConfig makeDetCfg() {
     return c;
 }
 static StepDetector detector(makeDetCfg());
+
+static LeanConfig makeLeanCfg() {
+    LeanConfig c;
+    c.enter        = GVS_ENTER;
+    c.exit         = GVS_EXIT;
+    c.confirm_ms   = T_LEAN_CONFIRM_MS;
+    c.min_dwell_ms = GVS_MIN_DWELL_MS;
+    return c;
+}
+static LeanClassifier gvsLean(makeLeanCfg());
 
 // ---------------------------------------------------------------------------
 // Live state
@@ -148,6 +159,7 @@ static void finishCalibration() {
     baseWaistRoll  = (float)calWaistRoll.mean;
     baseRtPitch    = (float)calRtPitch.mean;
     detector.reset();
+    gvsLean.reset();
     calibrated = true;
     Serial.printf("# calibrated: waist_pitch=%.2f waist_roll=%.2f rt_pitch=%.2f\n",
                   baseWaistPitch, baseWaistRoll, baseRtPitch);
@@ -237,9 +249,15 @@ static const char* computeAssist(uint32_t now) {
     return "GW1,STOP";
 }
 
-static const char* computeGvs(uint32_t /*now*/) {
-    gvsShort = "STOP";
-    return "GV1,STOP";   // TODO Gate 4: drive from the waist-roll lean classifier
+static const char* computeGvs(uint32_t now) {
+    // GVS never outputs before calibration or during a fault (safety).
+    if (!calibrated || fault) { gvsShort = "STOP"; return "GV1,STOP"; }
+    float dRoll = wrapDelta(waistRoll, baseWaistRoll);
+    switch (gvsLean.update(dRoll, now)) {
+        case Lean::LEFT:  gvsShort = "LEFT";  return "GV1,LEFT";
+        case Lean::RIGHT: gvsShort = "RIGHT"; return "GV1,RIGHT";
+        default:          gvsShort = "STOP";  return "GV1,STOP";
+    }
 }
 
 // ---------------------------------------------------------------------------
