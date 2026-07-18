@@ -7,7 +7,7 @@ exoskeleton, Engineering Innovation Challenge 2026, Team U-43.
 
 A waist hub senses gait (right thigh) and balance (waist) and drives two outputs:
 
-- Hip flexion assist, over UART to Joseph's ODrive S1 + CubeMars RI80 (GW1 stream).
+- Hip flexion assist, over UART to ODrive S1 + CubeMars RI80 (GW1 stream).
 - Galvanic Vestibular Stimulation for balance correction (GV1 stream to a DAC board).
 
 A wireless left thigh node (ESP-NOW) provides asymmetry analytics only, never
