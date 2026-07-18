@@ -9,7 +9,7 @@ three meet at ONE star point. No em dashes.
 |---|---|---|
 | Logic (ESP32s + sensors) | Yes, single 1S cell | 3.7 V straight to the XIAO BAT pads |
 | Motor (ODrive + RI80) | Yes, but MULTI-cell | a 4S to 6S pack (14.8 to 22 V), NOT a single cell |
-| GVS analog board | No, not directly | a +/- 15 V DC-DC converter (bipolar rails) |
+| GVS analog board | Yes, via a boost | 1S LiPo + a 5 V boost (the board makes its own rails from ~5 V), or a power bank |
 
 ## 1. Logic domain (3.3 V) - your boards
 
@@ -36,20 +36,27 @@ Runtime: a C3 + 2 sensors draws ~100 to 150 mA, so 800 to 1000 mAh gives hours.
 - Keep this pack physically and electrically separate from the logic rail.
   Charge it with a proper balance charger.
 
-## 3. GVS domain (+/- 14.5 V bipolar)
+## 3. GVS domain
 
-The GVS op-amp board needs a **positive and a negative rail** (the schematic shows
-V+ = +14.5 V and V- = -14.5 V). A single LiPo gives one polarity, so you cannot
-feed it directly. Use one of:
+IMPORTANT: the schematic shows +/- 14.5 V op-amp rails, but the physical v1 board
+ran off a USB power bank (5 V) in an earlier demo. That means the board makes its
+own rails from ~5 V internally (or runs single supply). So in practice it wants a
+**stable ~5 V input**, NOT an external +/- 15 V. Confirm what your board's power
+input actually expects before committing.
 
-- **A +/- 15 V DC-DC converter module** (recommended), fed from 5 V or from the
-  motor pack. Prefer an **isolated** module: good practice for a stimulation
-  supply. This is a small, cheap part (for example a +/-15 V "DCW" style module).
-- Or two battery packs in series with a center tap (bulky, avoid).
+Powering it from a battery (like the old power bank):
+- Do NOT feed a bare 3.7 V 1S LiPo directly: it is below 5 V and sags toward 3 V
+  as it drains, so the board's converter may drop out mid-demo.
+- Use **1S LiPo + a small 5 V boost module** (for example an MT3608), which gives
+  a steady 5 V, exactly like the power bank. Or just use a small LiPo power bank.
+
+Verify: put a multimeter on the GVS output and compare the current at 3.7 V vs
+5 V input. If it holds steady and under 3.5 mA at 3.7 V, a bare LiPo is fine; if
+it drops, add the boost.
 
 Notes:
 - The DAC signal and Vref (0 to 3.3 V) come from the output-node ESP32
-  (GPIO25 / GPIO26). The +/- 15 V only powers the op-amps.
+  (GPIO25 / GPIO26). The supply only powers the analog stage.
 - The sub 3.5 mA current ceiling and the isolation of the OUTPUT stage (to the
   electrodes) live in the analog board hardware, not in the supply.
 
@@ -59,7 +66,7 @@ Notes:
 - [ ] 1x 1S LiPo ~800 mAh (left node) + slide switch
 - [ ] 1x 5 V USB power bank (output node) OR a 5 V buck from the motor pack
 - [ ] 1x 6S LiPo pack + inline fuse + brake resistor + E-stop (motor, Joseph)
-- [ ] 1x +/- 15 V DC-DC converter module (GVS), isolated if possible
+- [ ] 1x 5 V boost module (MT3608) for the GVS board, OR a small LiPo power bank
 - [ ] 1S LiPo balance charger (logic cells) + 6S balance charger (motor pack)
 
 ## 5. Grounding and safety (do not skip)
