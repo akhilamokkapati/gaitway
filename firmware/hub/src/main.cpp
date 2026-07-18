@@ -131,7 +131,9 @@ static bool waistEnableReports() {
 static bool waistBegin() {
     Wire.begin(PIN_WAIST_SDA, PIN_WAIST_SCL);
     Wire.setClock(400000);
-    if (!waist.begin_I2C(WAIST_BNO_I2C_ADDR, &Wire)) return false;
+    // BNO085 breakouts sit at 0x4A or 0x4B depending on the ADDR pin, so try
+    // both (this board's waist sensor came up at 0x4B).
+    if (!waist.begin_I2C(0x4A, &Wire) && !waist.begin_I2C(0x4B, &Wire)) return false;
     delay(120);                                         // >= 100 ms after reset
     return waistEnableReports();
 }
