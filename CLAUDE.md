@@ -14,7 +14,7 @@ patterns from PASS but shares no code or repo.
 
 ```
  LEFT THIGH NODE (wireless)          WAIST HUB                     GVS NODE
- XIAO ESP32-C3 + BNO085(I2C)   XIAO ESP32-S3                 ESP32 + DAC output
+ XIAO ESP32-C3 + BNO085(I2C)   XIAO ESP32-C3                 ESP32 + DAC output
  + LiPo, ESP-NOW ---------->   waist BNO085 (I2C, <10cm)     stage (existing HW)
                                right thigh BNO085 --UART-RVC--> UART1 RX
                                UART TX ----------------------->  GVS node RX
@@ -51,8 +51,8 @@ failure point.
 ## Toolchain
 
 - PlatformIO, Arduino framework.
-- Boards: seeed_xiao_esp32s3 (hub), seeed_xiao_esp32c3 (left node),
-  esp32dev or the v1 board's actual target (gvs node, confirm at flash time).
+- Boards: seeed_xiao_esp32c3 (hub), seeed_xiao_esp32c3 (left node),
+  esp32dev classic ESP32 (output node: GVS DAC + ODrive commander, needs the DAC).
 - Monitor 115200.
 - Host tests (detection logic) compile with g++, no Arduino dependency.
 - Only libraries allowed beyond the framework: Adafruit BNO08x and its

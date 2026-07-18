@@ -14,7 +14,7 @@ Nothing flashes until this passes.
 ## Gate 2, hub senses
 
 Wire:
-- Waist BNO085 to the XIAO ESP32-S3 I2C, addr 0x4A, wires UNDER 10 cm
+- Waist BNO085 to the XIAO ESP32-C3 I2C, addr 0x4A, wires UNDER 10 cm
   (SDA D4/GPIO5, SCL D5/GPIO6, confirm on the board).
 - Right thigh BNO085 in UART-RVC mode (PS0 tied high), sensor TX into the hub RX
   pin in `pins.h` (verify the pin is free, avoid strapping pins).

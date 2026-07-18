@@ -21,7 +21,7 @@ threshold tuning, and `docs/BRINGUP.md` for the gate-by-gate hardware checklist.
 
 | Path | What |
 |---|---|
-| `firmware/hub/` | Waist hub firmware (XIAO ESP32-S3) |
+| `firmware/hub/` | Waist hub firmware (XIAO ESP32-C3) |
 | `firmware/left_node/` | Wireless left thigh node (XIAO ESP32-C3) |
 | `firmware/gvs_node/` | GVS stimulation node (ESP32 + DAC) |
 | `firmware/common/` | Shared ESP-NOW packet schema |
@@ -43,7 +43,7 @@ python tools/run_host_tests.py      # must print: ==== HOST TESTS: ALL PASS ====
 Each target is its own PlatformIO project. Monitor at 115200.
 
 ```
-# Hub (XIAO ESP32-S3)
+# Hub (XIAO ESP32-C3)
 pio run -d firmware/hub -t upload
 pio device monitor -b 115200
 

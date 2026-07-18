@@ -1,38 +1,35 @@
-// pins.h, Gaitway hub (XIAO ESP32-S3). ALL hub pin assignments live here.
-// VERIFY every pin against the physical XIAO ESP32-S3 silkscreen before flashing.
-// Avoid strapping pins (GPIO 0, 3, 45, 46) for UART. No em dashes.
+// pins.h, Gaitway hub (XIAO ESP32-C3). ALL hub pin assignments live here.
+// VERIFY every pin against the physical XIAO ESP32-C3 silkscreen before flashing.
+// No em dashes.
+//
+// UART budget on the C3: 2 hardware UARTs plus USB. This design needs only ONE
+// hardware UART: Serial1 carries the right-thigh RVC frames IN (RX) and the
+// merged GW1 + GV1 command stream OUT (TX). CSV logging goes over USB (Serial).
 #pragma once
 
 // ---------------------------------------------------------------------------
 // Waist BNO085, I2C mode, addr 0x4A, wires under 10 cm, 400 kHz.
-// Default XIAO I2C: SDA = D4 (GPIO5), SCL = D5 (GPIO6). Confirm on board.
+// XIAO ESP32-C3 default I2C: SDA = D4 (GPIO6), SCL = D5 (GPIO7).
 // ---------------------------------------------------------------------------
-#define PIN_WAIST_SDA        5   // D4
-#define PIN_WAIST_SCL        6   // D5
+#define PIN_WAIST_SDA        6    // D4
+#define PIN_WAIST_SCL        7    // D5
 #define WAIST_BNO_I2C_ADDR   0x4A
 
 // ---------------------------------------------------------------------------
-// Right thigh BNO085, UART-RVC mode (PS0 tied high), 115200 8N1, 100 Hz.
-// Sensor TX -> hub RX only (RVC is one way, no polling). Assign a free UART RX.
+// Serial1 (UART1): both directions on the single output-node link.
+//   RX  = right-thigh BNO085 in UART-RVC mode (PS0 high), sensor TX into here.
+//   TX  = merged GW1 (motor) + GV1 (GVS) command lines to the output node,
+//         which routes them by prefix to the ODrive and the GVS DAC.
 // ---------------------------------------------------------------------------
-#define PIN_RT_RVC_RX        44  // sensor TX into hub, TODO verify free on board
+#define PIN_RT_RVC_RX        20   // D7
+#define PIN_CMD_TX           21   // D6
 
 // ---------------------------------------------------------------------------
-// UART out to Joseph's actuation MCU (GW1 stream). TX only from hub.
+// Status LED. The XIAO ESP32-C3 has no broken-out user LED, so wire an external
+// LED (with a series resistor) from this pin to GND. Active high.
 // ---------------------------------------------------------------------------
-#define PIN_ACT_TX           43  // TODO verify free, avoid strapping pins
+#define PIN_STATUS_LED       4    // D2
+#define STATUS_LED_ACTIVE_LOW 0
 
-// ---------------------------------------------------------------------------
-// UART out to GVS node (GV1 stream). TX only from hub.
-// ---------------------------------------------------------------------------
-#define PIN_GVS_TX           7   // D8, TODO verify free
-
-// ---------------------------------------------------------------------------
-// Status LED (calibrated / fault / walking patterns).
-// XIAO ESP32-S3 onboard LED is on GPIO21 and is active LOW.
-// ---------------------------------------------------------------------------
-#define PIN_STATUS_LED       21
-#define STATUS_LED_ACTIVE_LOW 1
-
-// NOTE: XIAO ESP32-S3 exposes native USB for the serial monitor, so hardware
-// UART0 GPIO pins are free for one of the TX streams above. Confirm at bring up.
+// NOTE: CSV logging and the 'c' calibration command use USB (Serial), so no
+// hardware UART pins are spent on the laptop link.

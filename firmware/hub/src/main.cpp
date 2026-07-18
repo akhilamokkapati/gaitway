@@ -1,4 +1,4 @@
-// main.cpp, Gaitway waist hub (XIAO ESP32-S3).
+// main.cpp, Gaitway waist hub (XIAO ESP32-C3).
 // Gate 2 scope: sense the waist (I2C) and right thigh (UART-RVC), calibrate a
 // standing baseline, run step/walking detection, and log CSV at 50 Hz.
 // Command output streams (GW1 to actuation, GV1 to GVS) and the lean classifier
@@ -392,10 +392,9 @@ void setup() {
     pinMode(PIN_STATUS_LED, OUTPUT);
     ledWrite(false);
 
-    // UART1: RX = right-thigh RVC frames, TX = GV1 stream to the GVS node.
-    Serial1.begin(115200, SERIAL_8N1, PIN_RT_RVC_RX, PIN_GVS_TX);
-    // UART2: TX = GW1 stream to Joseph's actuation MCU (RX unused).
-    Serial2.begin(115200, SERIAL_8N1, -1, PIN_ACT_TX);
+    // Serial1 (UART1): RX = right-thigh RVC frames, TX = merged GW1 + GV1
+    // command stream to the output node (which routes by prefix).
+    Serial1.begin(115200, SERIAL_8N1, PIN_RT_RVC_RX, PIN_CMD_TX);
 
     espnowSetup();   // left node analytics link (also prints the hub MAC)
 
@@ -423,8 +422,9 @@ void loop() {
     serviceWatchdogs(now);
 
     // Command streams: compute intent, emit edge/heartbeat lines within the gap.
+    // Both GW1 and GV1 go out the one Serial1 TX; the output node routes them.
     const char* gwLine = gw1.update(computeAssist(now), now);
-    if (gwLine) Serial2.println(gwLine);
+    if (gwLine) Serial1.println(gwLine);
     const char* gvLine = gv1.update(computeGvs(now), now);
     if (gvLine) Serial1.println(gvLine);
 
