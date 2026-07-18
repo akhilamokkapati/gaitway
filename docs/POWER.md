@@ -23,18 +23,25 @@ three meet at ONE star point. No em dashes.
 
 Runtime: a C3 + 2 sensors draws ~100 to 150 mA, so 800 to 1000 mAh gives hours.
 
-## 2. Motor domain (Joseph's, but plan for it)
+## 2. Motor domain (ODrive S1 + RI80 KV75)
 
-- **Battery:** a **6S LiPo (~22 V nominal)** is the sweet spot inside the ODrive
-  S1 range (12 to 48 V). 4S (~14.8 V) also works but with less headroom. Do NOT
-  use a single cell, it is far too low.
-- **Capacity / C-rating:** ~1500 to 2200 mAh, 25C or higher, so it can deliver the
-  assist current peaks.
-- **Must-haves:** an inline **fuse**, a **brake resistor** on the ODrive (the
-  motor regenerates energy when assisting against motion, and a full battery
-  cannot always absorb it), and a **main kill switch / E-stop**.
-- Keep this pack physically and electrically separate from the logic rail.
-  Charge it with a proper balance charger.
+- **Battery: 6S LiPo (~22 V nominal, 25 V full).** This is the pick, not 4S. Speed
+  is never the limit here; current/heat is. At a lower voltage you need more
+  current for the same assist torque (more heat, closer to the ODrive current
+  limit), so 6S runs cooler with more headroom and matches the low-KV motor. 4S
+  (~14.8 V) works but runs hotter. Never a single cell, far too low.
+- **Capacity / C-rating:** ~1500 to 2200 mAh, 25C or higher, for the current peaks.
+- **Must-haves:**
+  - inline **fuse** (~20 A) on the pack
+  - **brake resistor** on the ODrive (the motor pushes energy back when assisting
+    against motion, and a full battery cannot always absorb it)
+  - **XT60 anti-spark connector** or a precharge (stops the inrush spark into the
+    ODrive bus caps)
+  - **LiPo low-voltage alarm** on the balance port
+  - **E-stop / main kill switch** within reach during any motor test
+  - **B6AC-type balance charger** (6S capable). USB / B6-mini charging is not OK.
+- Keep this pack physically and electrically separate from the logic rail; only
+  the ground ties in, at the one star point.
 
 ## 3. GVS domain
 
