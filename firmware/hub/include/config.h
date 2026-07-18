@@ -78,3 +78,15 @@ static const float    WAIST_ROLL_SIGN  = +1.0f;    // waist roll (positive = lea
 // packets are matched by node_id, not MAC.
 // ---------------------------------------------------------------------------
 static const uint8_t  LEFT_NODE_MAC[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };  // TODO SET
+
+// ---------------------------------------------------------------------------
+// Wireless logging (untethered demo). The hub runs a WiFi SoftAP and broadcasts
+// every CSV line over UDP, so a laptop or phone joined to the AP receives the
+// same stream it would get over USB. A UDP packet of "c" triggers calibration
+// wirelessly. ESP-NOW and the SoftAP share WIFI_CHANNEL so both work together.
+// USB logging keeps working at the same time, so tethered testing is unchanged.
+// ---------------------------------------------------------------------------
+#define WIFI_AP_SSID     "Gaitway-Hub"
+#define WIFI_AP_PASS     "gaitway2026"   // 8+ chars, change if you like
+static const uint8_t  WIFI_CHANNEL = 1;   // MUST match the left node's channel
+static const uint16_t UDP_PORT     = 4210;

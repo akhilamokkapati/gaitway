@@ -8,6 +8,9 @@
 // ###########################################################################
 static const uint8_t HUB_MAC[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };  // TODO SET
 
+// MUST match the hub's WIFI_CHANNEL so ESP-NOW works while the hub runs its
+// SoftAP for wireless logging.
+static const uint8_t  WIFI_CHANNEL      = 1;
 static const uint16_t TX_PERIOD_MS      = 20;     // transmit at 50 Hz
 static const uint16_t NODE_CAL_FRAMES   = 100;    // 1 s baseline at 100 Hz
 static const float    NODE_RATE_LP_ALPHA = 0.4f;  // match the hub rate filter

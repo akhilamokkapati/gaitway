@@ -7,7 +7,9 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <AsyncUDP.h>
 #include <Adafruit_BNO08x.h>
+#include <stdarg.h>
 
 #include "config.h"
 #include "pins.h"
@@ -29,6 +31,22 @@ static CommandStream gw1("GW1,HB", CMD_MIN_GAP_MS, CMD_HEARTBEAT_MS);
 static CommandStream gv1("GV1,HB", CMD_MIN_GAP_MS, CMD_HEARTBEAT_MS);
 static const char*   assistShort = "STOP";   // for the CSV assist_cmd column
 static const char*   gvsShort    = "STOP";   // for the CSV gvs_state column
+
+// Wireless logging: mirror every log line to USB Serial AND UDP broadcast.
+static AsyncUDP      udp;
+static bool          udpReady   = false;
+static volatile bool calRequested = false;   // set by a wireless 'c', handled in loop
+
+static void logf(const char* fmt, ...) {
+    char buf[192];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (n <= 0) return;
+    Serial.print(buf);
+    if (udpReady) udp.broadcastTo((uint8_t*)buf, strlen(buf), UDP_PORT);
+}
 
 // ---------------------------------------------------------------------------
 // Sensors and detection
@@ -143,18 +161,18 @@ static void updateLed(uint32_t now) {
 // Config echo, printed once before the CSV header (safety law 5)
 // ---------------------------------------------------------------------------
 static void printConfigEcho() {
-    Serial.println("# gaitway hub config");
-    Serial.printf("# SWING_RATE_ON=%.1f SWING_RATE_OFF=%.1f T_CONFIRM_MS=%u T_REFRACT_MS=%u\n",
-                  SWING_RATE_ON, SWING_RATE_OFF, T_CONFIRM_MS, T_REFRACT_MS);
-    Serial.printf("# RATE_LP_ALPHA=%.2f WALK_WINDOW_MS=%u\n", RATE_LP_ALPHA, WALK_WINDOW_MS);
-    Serial.printf("# GVS_ENTER=%.1f GVS_EXIT=%.1f T_LEAN_CONFIRM_MS=%u GVS_MIN_DWELL_MS=%u\n",
-                  GVS_ENTER, GVS_EXIT, T_LEAN_CONFIRM_MS, GVS_MIN_DWELL_MS);
-    Serial.printf("# CAL_FRAMES=%u CAL_STILL_STDDEV=%.2f SENSOR_TIMEOUT_MS=%u LT_STALE_MS=%u\n",
-                  CAL_FRAMES, CAL_STILL_STDDEV, SENSOR_TIMEOUT_MS, LT_STALE_MS);
-    Serial.printf("# RT_PITCH_SIGN=%+.0f WAIST_PITCH_SIGN=%+.0f WAIST_ROLL_SIGN=%+.0f\n",
-                  RT_PITCH_SIGN, WAIST_PITCH_SIGN, WAIST_ROLL_SIGN);
-    Serial.println("millis,waist_pitch,waist_roll,rt_pitch,rt_rate,lt_pitch,lt_stale,"
-                   "step_evt,walk_state,dir,gvs_state,assist_cmd");
+    logf("# gaitway hub config\n");
+    logf("# SWING_RATE_ON=%.1f SWING_RATE_OFF=%.1f T_CONFIRM_MS=%u T_REFRACT_MS=%u\n",
+         SWING_RATE_ON, SWING_RATE_OFF, T_CONFIRM_MS, T_REFRACT_MS);
+    logf("# RATE_LP_ALPHA=%.2f WALK_WINDOW_MS=%u\n", RATE_LP_ALPHA, WALK_WINDOW_MS);
+    logf("# GVS_ENTER=%.1f GVS_EXIT=%.1f T_LEAN_CONFIRM_MS=%u GVS_MIN_DWELL_MS=%u\n",
+         GVS_ENTER, GVS_EXIT, T_LEAN_CONFIRM_MS, GVS_MIN_DWELL_MS);
+    logf("# CAL_FRAMES=%u CAL_STILL_STDDEV=%.2f SENSOR_TIMEOUT_MS=%u LT_STALE_MS=%u\n",
+         CAL_FRAMES, CAL_STILL_STDDEV, SENSOR_TIMEOUT_MS, LT_STALE_MS);
+    logf("# RT_PITCH_SIGN=%+.0f WAIST_PITCH_SIGN=%+.0f WAIST_ROLL_SIGN=%+.0f\n",
+         RT_PITCH_SIGN, WAIST_PITCH_SIGN, WAIST_ROLL_SIGN);
+    logf("millis,waist_pitch,waist_roll,rt_pitch,rt_rate,lt_pitch,lt_stale,"
+         "step_evt,walk_state,dir,gvs_state,assist_cmd\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -167,15 +185,15 @@ static void startCalibration() {
     calWaistRoll  = RunningStats();
     calRtPitch    = RunningStats();
     sendCalRequest();                 // ask the left node to capture its own baseline
-    Serial.println("# calibration: hold still, collecting");
+    logf("# calibration: hold still, collecting\n");
 }
 
 static void finishCalibration() {
     calibrating = false;
     double sp = calWaistPitch.stddev(), sr = calWaistRoll.stddev(), srt = calRtPitch.stddev();
     if (sp > CAL_STILL_STDDEV || sr > CAL_STILL_STDDEV || srt > CAL_STILL_STDDEV) {
-        Serial.printf("# calibration REJECTED, too much motion (stddev wp=%.2f wr=%.2f rt=%.2f), send c to retry\n",
-                      sp, sr, srt);
+        logf("# calibration REJECTED, too much motion (stddev wp=%.2f wr=%.2f rt=%.2f), send c to retry\n",
+             sp, sr, srt);
         return;
     }
     baseWaistPitch = (float)calWaistPitch.mean;
@@ -186,8 +204,8 @@ static void finishCalibration() {
     gvsLean.reset();
     asym.reset();
     calibrated = true;
-    Serial.printf("# calibrated: waist_pitch=%.2f waist_roll=%.2f rt_pitch=%.2f\n",
-                  baseWaistPitch, baseWaistRoll, baseRtPitch);
+    logf("# calibrated: waist_pitch=%.2f waist_roll=%.2f rt_pitch=%.2f\n",
+         baseWaistPitch, baseWaistRoll, baseRtPitch);
 }
 
 // ---------------------------------------------------------------------------
@@ -304,12 +322,26 @@ static void onLeftRecv(const uint8_t* /*mac*/, const uint8_t* data, int len) {
     portEXIT_CRITICAL_ISR(&ltMux);
 }
 
+// SoftAP + UDP for wireless logging. A UDP packet starting with 'c' calibrates.
+static void wifiSetup() {
+    WiFi.mode(WIFI_AP_STA);                       // AP for log clients, STA for ESP-NOW
+    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS, WIFI_CHANNEL);
+    if (udp.listen(UDP_PORT)) {
+        udpReady = true;
+        udp.onPacket([](AsyncUDPPacket p) {
+            if (p.length() >= 1 && (p.data()[0] == 'c' || p.data()[0] == 'C'))
+                calRequested = true;              // handled in loop()
+        });
+    }
+    logf("# WiFi AP '%s' ch %u up, join it and listen on UDP %u\n",
+         WIFI_AP_SSID, WIFI_CHANNEL, UDP_PORT);
+    logf("# AP IP: %s (send UDP 'c' to calibrate)\n", WiFi.softAPIP().toString().c_str());
+}
+
 static void espnowSetup() {
-    WiFi.mode(WIFI_STA);
-    Serial.print("# hub MAC: ");
-    Serial.println(WiFi.macAddress());
+    logf("# hub MAC: %s\n", WiFi.macAddress().c_str());
     if (esp_now_init() != ESP_OK) {
-        Serial.println("# WARN: esp_now_init failed, left node analytics disabled");
+        logf("# WARN: esp_now_init failed, left node analytics disabled\n");
         return;
     }
     esp_now_register_recv_cb(onLeftRecv);
@@ -318,7 +350,7 @@ static void espnowSetup() {
     peer.channel = 0;
     peer.encrypt = false;
     if (esp_now_add_peer(&peer) != ESP_OK)
-        Serial.println("# WARN: could not add left-node peer, is LEFT_NODE_MAC set?");
+        logf("# WARN: could not add left-node peer, is LEFT_NODE_MAC set?\n");
 }
 
 static void sendCalRequest() {
@@ -351,11 +383,11 @@ static void logAsymmetry(uint32_t now) {
     lastAsymMs = now;
     AsymResult a = asym.result(ltStale);
     if (a.available)
-        Serial.printf("# asym amp=%.2f dur=%.2f nL=%u nR=%u\n",
-                      a.amplitude_ratio, a.duration_ratio, a.n_left, a.n_right);
+        logf("# asym amp=%.2f dur=%.2f nL=%u nR=%u\n",
+             a.amplitude_ratio, a.duration_ratio, a.n_left, a.n_right);
     else
-        Serial.printf("# asym unavailable (left %s, nL=%u nR=%u)\n",
-                      ltStale ? "stale" : "ok", a.n_left, a.n_right);
+        logf("# asym unavailable (left %s, nL=%u nR=%u)\n",
+             ltStale ? "stale" : "ok", a.n_left, a.n_right);
 }
 
 // ---------------------------------------------------------------------------
@@ -378,10 +410,10 @@ static void logRow(uint32_t now) {
     if (ltStale) ltbuf[0] = '\0';
     else         snprintf(ltbuf, sizeof(ltbuf), "%.2f", ltPitch);
 
-    Serial.printf("%lu,%.2f,%.2f,%.2f,%.1f,%s,%d,%d,%s,%s,%s,%s\n",
-                  (unsigned long)now, wp, wr, rp, rtRate,
-                  ltbuf, ltStale ? 1 : 0, stepPending ? 1 : 0, walk,
-                  dirStr(lastDir), gvsShort, assistShort);
+    logf("%lu,%.2f,%.2f,%.2f,%.1f,%s,%d,%d,%s,%s,%s,%s\n",
+         (unsigned long)now, wp, wr, rp, rtRate,
+         ltbuf, ltStale ? 1 : 0, stepPending ? 1 : 0, walk,
+         dirStr(lastDir), gvsShort, assistShort);
     stepPending = false;
 }
 
@@ -396,16 +428,17 @@ void setup() {
     // command stream to the output node (which routes by prefix).
     Serial1.begin(115200, SERIAL_8N1, PIN_RT_RVC_RX, PIN_CMD_TX);
 
+    wifiSetup();     // SoftAP + UDP for wireless logging (must precede ESP-NOW)
     espnowSetup();   // left node analytics link (also prints the hub MAC)
 
     if (!waistBegin()) {
-        Serial.println("# FATAL: waist BNO085 not found, check I2C wiring (<10cm) and address");
+        logf("# FATAL: waist BNO085 not found, check I2C wiring (<10cm) and address\n");
         fault = true;
     }
     lastWaistMs = millis();
 
     printConfigEcho();
-    Serial.println("# send 'c' while standing still to calibrate");
+    logf("# send 'c' (USB) or a UDP 'c' (wireless) while standing still to calibrate\n");
 }
 
 void loop() {
@@ -415,6 +448,7 @@ void loop() {
         int cmd = Serial.read();
         if (cmd == 'c' || cmd == 'C') startCalibration();
     }
+    if (calRequested) { calRequested = false; startCalibration(); }  // wireless 'c'
 
     serviceWaist(now);
     serviceRightThigh(now);

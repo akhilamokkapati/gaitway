@@ -8,6 +8,7 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <esp_wifi.h>
 #include <Adafruit_BNO08x.h>
 
 #include "config.h"
@@ -72,6 +73,7 @@ static void onRecv(const uint8_t* /*mac*/, const uint8_t* data, int len) {
 
 static void espnowSetup() {
     WiFi.mode(WIFI_STA);
+    esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);  // match the hub AP channel
     Serial.print("# left node MAC: ");
     Serial.println(WiFi.macAddress());   // print for pairing into the hub HUB_MAC
 
