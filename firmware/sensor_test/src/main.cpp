@@ -76,19 +76,26 @@ void setup() {
 
 float wp = 0, wr = 0, wy = 0;
 uint32_t last = 0;
+uint32_t waistEvents = 0;
 
 void loop() {
     if (waistOK && waist.getSensorEvent(&val) &&
-        val.sensorId == SH2_GAME_ROTATION_VECTOR)
+        val.sensorId == SH2_GAME_ROTATION_VECTOR) {
         quatToEuler(val.un.gameRotationVector.real, val.un.gameRotationVector.i,
                     val.un.gameRotationVector.j, val.un.gameRotationVector.k, wp, wr, wy);
+        waistEvents++;
+    }
 
     while (Serial1.available()) feedRvc((uint8_t)Serial1.read());
 
     if (millis() - last >= 200) {
         last = millis();
-        Serial.printf("WAIST pitch=%6.1f roll=%6.1f | THIGH pitch=%6.1f roll=%6.1f yaw=%6.1f | frames=%lu err=%lu\n",
-                      wp, wr, rtPitch, rtRoll, rtYaw,
-                      (unsigned long)rFrames, (unsigned long)rErr);
+        if (waistOK)
+            Serial.printf("WAIST[0x%02X evt=%lu] pitch=%6.1f roll=%6.1f | THIGH p=%6.1f r=%6.1f y=%6.1f frames=%lu err=%lu\n",
+                          waistAddr, (unsigned long)waistEvents, wp, wr,
+                          rtPitch, rtRoll, rtYaw, (unsigned long)rFrames, (unsigned long)rErr);
+        else
+            Serial.printf("WAIST[NOT FOUND on I2C] | THIGH p=%6.1f r=%6.1f y=%6.1f frames=%lu err=%lu\n",
+                          rtPitch, rtRoll, rtYaw, (unsigned long)rFrames, (unsigned long)rErr);
     }
 }
